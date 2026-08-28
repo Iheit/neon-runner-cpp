@@ -15,18 +15,16 @@ constexpr int SCREEN_WIDTH = 1280;
 constexpr int SCREEN_HEIGHT = 720;
 constexpr float LANE_WIDTH = 3.2f;
 constexpr float PLAYER_Z = 2.5f;
+constexpr float SEGMENT_LENGTH = 14.0f;
+constexpr int SEGMENT_COUNT = 18;
 
-struct Obstacle {
-    Vector3 position{};
-    float width = 1.8f;
-    float height = 2.0f;
-    float depth = 2.0f;
-};
-
-struct Coin {
-    Vector3 position{};
-    bool collected = false;
-    float time = 0.0f;
+struct Segment {
+    float z = 0.0f;
+    int obstacleLane = -1;
+    int coinLane = -1;
+    int buildingStyle = 0;
+    float obstacleHeight = 2.0f;
+    bool coinCollected = false;
 };
 
 float LaneX(int lane) {
@@ -34,69 +32,104 @@ float LaneX(int lane) {
 }
 
 float RandomFloat(float min, float max) {
-    return min + static_cast<float>(std::rand()) /
-                       static_cast<float>(RAND_MAX) * (max - min);
+    return min + static_cast<float>(std::rand()) / static_cast<float>(RAND_MAX) * (max - min);
 }
 
-void DrawWorld(float distance) {
-    DrawPlane({0.0f, -0.08f, 0.0f}, {24.0f, 180.0f}, Color{20, 24, 38, 255});
+int RandomLane() {
+    return std::rand() % 3;
+}
 
-    DrawCube({-5.25f, 0.02f, -25.0f}, 0.08f, 0.12f, 180.0f,
-             Color{70, 220, 255, 255});
-    DrawCube({5.25f, 0.02f, -25.0f}, 0.08f, 0.12f, 180.0f,
-             Color{70, 220, 255, 255});
+void GenerateSegment(Segment& segment, float z) {
+    segment.z = z;
+    segment.obstacleLane = RandomLane();
+    segment.coinLane = (segment.obstacleLane + 1 + std::rand() % 2) % 3;
+    segment.buildingStyle = std::rand() % 4;
+    segment.obstacleHeight = RandomFloat(1.7f, 2.5f);
+    segment.coinCollected = false;
+}
 
-    const float offset = std::fmod(distance * 0.9f, 8.0f);
-    for (int divider = 0; divider < 2; ++divider) {
-        const float x = divider == 0 ? -LANE_WIDTH / 2.0f : LANE_WIDTH / 2.0f;
-        for (int i = -12; i < 14; ++i) {
-            DrawCube({x, 0.055f, i * 8.0f + offset}, 0.09f, 0.04f, 3.5f,
-                     Color{115, 125, 150, 255});
-        }
+void DrawSegment(const Segment& segment, Texture2D roadTexture,
+                Texture2D buildingTexture, Texture2D obstacleTexture,
+                Texture2D neonTexture) {
+    DrawCubeTexture(roadTexture, {0.0f, -0.10f, segment.z}, 10.0f, 0.18f,
+                    SEGMENT_LENGTH, WHITE);
+
+    const float side = segment.buildingStyle % 2 == 0 ? 1.0f : -1.0f;
+    const float leftHeight = 5.0f + segment.buildingStyle * 1.7f;
+    const float rightHeight = 7.0f + (3 - segment.buildingStyle) * 1.2f;
+
+    DrawCubeTexture(buildingTexture,
+                    {-7.2f, leftHeight / 2.0f, segment.z + side},
+                    3.5f, leftHeight, SEGMENT_LENGTH * 0.86f, WHITE);
+    DrawCubeTexture(buildingTexture,
+                    {7.2f, rightHeight / 2.0f, segment.z - side},
+                    3.5f, rightHeight, SEGMENT_LENGTH * 0.86f, WHITE);
+
+    DrawCubeTexture(neonTexture,
+                    {-5.25f, 2.5f, segment.z},
+                    0.08f, 5.0f, 0.08f, WHITE);
+    DrawCubeTexture(neonTexture,
+                    {5.25f, 2.5f, segment.z},
+                    0.08f, 5.0f, 0.08f, WHITE);
+
+    if (segment.obstacleLane >= 0) {
+        const Vector3 obstaclePosition = {
+            LaneX(segment.obstacleLane),
+            segment.obstacleHeight / 2.0f,
+            segment.z
+        };
+        DrawCubeTexture(obstacleTexture, obstaclePosition, 1.8f,
+                        segment.obstacleHeight, 1.8f, WHITE);
+        DrawCubeWires(obstaclePosition, 1.85f,
+                      segment.obstacleHeight + 0.05f, 1.85f,
+                      Color{255, 130, 150, 255});
     }
 
-    for (int i = -9; i <= 9; i += 2) {
-        const float height = 4.0f + std::abs(i % 5) * 1.8f;
-        DrawCube({i * 3.6f, height / 2.0f, -45.0f}, 2.6f, height, 2.6f,
-                 Color{24, 28, 48, 255});
+    if (segment.coinLane >= 0 && !segment.coinCollected) {
+        const float bob = std::sin(segment.z * 0.17f) * 0.18f;
+        DrawCylinder({LaneX(segment.coinLane), 1.45f + bob, segment.z - 4.0f},
+                     0.48f, 0.48f, 0.12f, 24,
+                     Color{255, 215, 65, 255});
+        DrawCylinderWires({LaneX(segment.coinLane), 1.45f + bob, segment.z - 4.0f},
+                          0.51f, 0.51f, 0.14f, 24,
+                          Color{255, 245, 170, 255});
     }
 }
 
-void DrawObstacle(const Obstacle& obstacle) {
-    DrawCube(obstacle.position, obstacle.width, obstacle.height,
-             obstacle.depth, Color{255, 70, 95, 255});
-    DrawCubeWires(obstacle.position, obstacle.width + 0.05f,
-                  obstacle.height + 0.05f, obstacle.depth + 0.05f,
-                  Color{255, 150, 165, 255});
-}
+void DrawAnimatedPlayer(Vector3 basePosition, float runTime, bool jumping) {
+    const float run = std::sin(runTime * 12.0f);
+    const float bob = jumping ? 0.0f : std::fabs(run) * 0.06f;
+    const float bodyY = basePosition.y + bob;
 
-void DrawCoin(const Coin& coin) {
-    if (coin.collected) {
-        return;
-    }
+    DrawCylinder({basePosition.x, bodyY + 0.55f, basePosition.z},
+                 0.48f, 0.62f, 1.35f, 20,
+                 Color{45, 175, 220, 255});
+    DrawSphere({basePosition.x, bodyY + 1.45f, basePosition.z},
+               0.47f, Color{105, 230, 255, 255});
 
-    const float bob = std::sin(coin.time * 3.0f) * 0.15f;
-    const Vector3 position = {
-        coin.position.x,
-        coin.position.y + bob,
-        coin.position.z
-    };
+    DrawSphere({basePosition.x - 0.17f, bodyY + 1.50f, basePosition.z - 0.39f},
+               0.07f, Color{10, 20, 35, 255});
+    DrawSphere({basePosition.x + 0.17f, bodyY + 1.50f, basePosition.z - 0.39f},
+               0.07f, Color{10, 20, 35, 255});
 
-    DrawCylinder(position, 0.48f, 0.48f, 0.10f, 32,
-                 Color{255, 220, 70, 255});
-    DrawCylinderWires(position, 0.50f, 0.50f, 0.12f, 32,
-                      Color{255, 250, 170, 255});
-}
+    const float legA = run * 0.32f;
+    const float legB = -run * 0.32f;
+    DrawCube({basePosition.x - 0.23f + legA, bodyY - 0.38f,
+              basePosition.z}, 0.28f, 0.75f, 0.30f,
+             Color{35, 90, 145, 255});
+    DrawCube({basePosition.x + 0.23f + legB, bodyY - 0.38f,
+              basePosition.z}, 0.28f, 0.75f, 0.30f,
+             Color{35, 90, 145, 255});
 
-void DrawPlayer(Vector3 position) {
-    DrawCube(position, 1.45f, 1.45f, 1.45f,
+    DrawCube({basePosition.x - 0.55f + legB, bodyY + 0.58f,
+              basePosition.z}, 0.72f, 0.18f, 0.18f,
              Color{70, 220, 255, 255});
-    DrawCubeWires(position, 1.50f, 1.50f, 1.50f,
-                  Color{170, 245, 255, 255});
-    DrawCube({position.x, position.y + 0.05f, position.z - 0.74f},
-             0.75f, 0.65f, 0.06f, Color{10, 16, 30, 255});
+    DrawCube({basePosition.x + 0.55f + legA, bodyY + 0.58f,
+              basePosition.z}, 0.72f, 0.18f, 0.18f,
+             Color{70, 220, 255, 255});
 }
-}
+
+} // namespace
 
 int main() {
     std::srand(static_cast<unsigned>(std::time(nullptr)));
@@ -112,26 +145,43 @@ int main() {
         [&](int value, const std::string& text) {
             progress = value;
             progressText = text;
-
             BeginDrawing();
             ClearBackground(Color{7, 10, 20, 255});
             DrawText("NEON RUNNER", 440, 220, 48,
                      Color{100, 225, 255, 255});
-            DrawText(progressText.c_str(), 460, 315, 22, RAYWHITE);
-            DrawRectangle(360, 365, 560, 20,
-                          Color{30, 35, 55, 255});
+            DrawText(progressText.c_str(), 430, 315, 22, RAYWHITE);
+            DrawRectangle(360, 365, 560, 20, Color{30, 35, 55, 255});
             DrawRectangle(360, 365, 560 * progress / 100, 20,
                           Color{70, 220, 255, 255});
             DrawText(TextFormat("%d%%", progress), 610, 405, 20, RAYWHITE);
             EndDrawing();
         });
 
+    const std::string assetRoot =
+        (std::filesystem::current_path() / "assets" / "generated").string();
+
+    Texture2D roadTexture = LoadTexture((assetRoot + "/road.png").c_str());
+    Texture2D buildingTexture = LoadTexture((assetRoot + "/building.png").c_str());
+    Texture2D obstacleTexture = LoadTexture((assetRoot + "/obstacle.png").c_str());
+    Texture2D neonTexture = LoadTexture((assetRoot + "/neon_panel.png").c_str());
+
+    InitAudioDevice();
+    Sound coinSound = LoadSound((assetRoot + "/coin.wav").c_str());
+    Sound jumpSound = LoadSound((assetRoot + "/jump.wav").c_str());
+    Sound hitSound = LoadSound((assetRoot + "/hit.wav").c_str());
+    Sound stepSound = LoadSound((assetRoot + "/step.wav").c_str());
+
     Camera3D camera{};
-    camera.position = {0.0f, 7.0f, 10.5f};
-    camera.target = {0.0f, 1.1f, -8.0f};
+    camera.position = {0.0f, 6.7f, 11.0f};
+    camera.target = {0.0f, 1.3f, -12.0f};
     camera.up = {0.0f, 1.0f, 0.0f};
-    camera.fovy = 55.0f;
+    camera.fovy = 58.0f;
     camera.projection = CAMERA_PERSPECTIVE;
+
+    std::vector<Segment> segments(SEGMENT_COUNT);
+    for (int i = 0; i < SEGMENT_COUNT; ++i) {
+        GenerateSegment(segments[i], -i * SEGMENT_LENGTH);
+    }
 
     int lane = 1;
     int score = 0;
@@ -139,10 +189,9 @@ int main() {
     float verticalVelocity = 0.0f;
     float speed = 18.0f;
     float distance = 0.0f;
+    float runTime = 0.0f;
+    float stepTimer = 0.0f;
     bool gameOver = false;
-
-    std::vector<Obstacle> obstacles;
-    std::vector<Coin> coins;
 
     auto reset = [&]() {
         lane = 1;
@@ -151,150 +200,97 @@ int main() {
         verticalVelocity = 0.0f;
         speed = 18.0f;
         distance = 0.0f;
+        runTime = 0.0f;
+        stepTimer = 0.0f;
         gameOver = false;
-        obstacles.clear();
-        coins.clear();
-
-        for (int i = 0; i < 10; ++i) {
-            const float z = -18.0f - i * 15.0f;
-
-            if (i % 2 == 0) {
-                obstacles.push_back({{LaneX((i + 1) % 3), 1.0f, z}});
-            }
-
-            coins.push_back({
-                {LaneX((i + 2) % 3), 1.3f, z - 5.0f},
-                false,
-                RandomFloat(0.0f, 6.28f)
-            });
+        for (int i = 0; i < SEGMENT_COUNT; ++i) {
+            GenerateSegment(segments[i], -i * SEGMENT_LENGTH);
         }
     };
 
     reset();
 
     while (!WindowShouldClose()) {
-        const float deltaTime = std::min(GetFrameTime(), 0.033f);
+        const float dt = std::min(GetFrameTime(), 0.033f);
 
         if (!gameOver) {
             if (IsKeyPressed(KEY_A) || IsKeyPressed(KEY_LEFT)) {
                 lane = std::max(0, lane - 1);
             }
-
             if (IsKeyPressed(KEY_D) || IsKeyPressed(KEY_RIGHT)) {
                 lane = std::min(2, lane + 1);
             }
-
             if (IsKeyPressed(KEY_SPACE) && playerY <= 1.01f) {
                 verticalVelocity = 10.0f;
+                PlaySound(jumpSound);
             }
 
-            verticalVelocity -= 25.0f * deltaTime;
-            playerY += verticalVelocity * deltaTime;
-
+            verticalVelocity -= 25.0f * dt;
+            playerY += verticalVelocity * dt;
             if (playerY < 1.0f) {
                 playerY = 1.0f;
                 verticalVelocity = 0.0f;
             }
 
-            speed = std::min(34.0f, speed + 0.55f * deltaTime);
-            distance += speed * deltaTime;
+            speed = std::min(42.0f, speed + 0.42f * dt);
+            distance += speed * dt;
+            runTime += dt;
+            stepTimer += dt;
             score = static_cast<int>(distance * 1.25f);
 
-            for (auto& obstacle : obstacles) {
-                obstacle.position.z += speed * deltaTime;
+            if (stepTimer > 0.38f && playerY <= 1.05f) {
+                PlaySound(stepSound);
+                stepTimer = 0.0f;
             }
 
-            for (auto& coin : coins) {
-                coin.position.z += speed * deltaTime;
-                coin.time += deltaTime * 5.0f;
+            float farthestZ = 0.0f;
+            for (const auto& segment : segments) {
+                farthestZ = std::min(farthestZ, segment.z);
             }
 
-            float farthestZ = -100.0f;
-            for (const auto& obstacle : obstacles) {
-                farthestZ = std::min(farthestZ, obstacle.position.z);
-            }
-            for (const auto& coin : coins) {
-                farthestZ = std::min(farthestZ, coin.position.z);
+            for (auto& segment : segments) {
+                segment.z += speed * dt;
             }
 
-            if (farthestZ > -100.0f) {
-                const float z = farthestZ - RandomFloat(24.0f, 34.0f);
-                const int obstacleLane = std::rand() % 3;
-
-                obstacles.push_back({
-                    {LaneX(obstacleLane), 1.0f, z},
-                    1.8f,
-                    RandomFloat(1.7f, 2.5f),
-                    2.0f
-                });
-
-                const int coinLane =
-                    (obstacleLane + 1 + std::rand() % 2) % 3;
-
-                coins.push_back({
-                    {LaneX(coinLane), RandomFloat(1.2f, 1.8f), z - 5.0f},
-                    false,
-                    RandomFloat(0.0f, 6.28f)
-                });
+            for (auto& segment : segments) {
+                if (segment.z > 22.0f) {
+                    segment.z = farthestZ - SEGMENT_LENGTH;
+                    GenerateSegment(segment, segment.z);
+                    farthestZ = segment.z;
+                }
             }
 
-            const Vector3 playerPosition = {
-                LaneX(lane), playerY, PLAYER_Z
-            };
-
+            const Vector3 playerPosition = {LaneX(lane), playerY, PLAYER_Z};
             const BoundingBox playerBox = {
-                {playerPosition.x - 0.62f,
-                 playerPosition.y - 0.68f,
-                 playerPosition.z - 0.62f},
-                {playerPosition.x + 0.62f,
-                 playerPosition.y + 0.68f,
-                 playerPosition.z + 0.62f}
+                {playerPosition.x - 0.55f, playerPosition.y - 0.75f,
+                 playerPosition.z - 0.45f},
+                {playerPosition.x + 0.55f, playerPosition.y + 0.80f,
+                 playerPosition.z + 0.45f}
             };
 
-            for (const auto& obstacle : obstacles) {
-                const BoundingBox obstacleBox = {
-                    {obstacle.position.x - obstacle.width / 2.0f,
-                     obstacle.position.y - obstacle.height / 2.0f,
-                     obstacle.position.z - obstacle.depth / 2.0f},
-                    {obstacle.position.x + obstacle.width / 2.0f,
-                     obstacle.position.y + obstacle.height / 2.0f,
-                     obstacle.position.z + obstacle.depth / 2.0f}
-                };
-
-                if (CheckCollisionBoxes(playerBox, obstacleBox)) {
-                    gameOver = true;
-                    break;
+            for (auto& segment : segments) {
+                if (segment.obstacleLane >= 0 &&
+                    std::fabs(segment.z - PLAYER_Z) < 1.15f &&
+                    segment.obstacleLane == lane) {
+                    const BoundingBox obstacleBox = {
+                        {LaneX(lane) - 0.9f, 0.0f, segment.z - 0.9f},
+                        {LaneX(lane) + 0.9f, segment.obstacleHeight, segment.z + 0.9f}
+                    };
+                    if (CheckCollisionBoxes(playerBox, obstacleBox)) {
+                        gameOver = true;
+                        PlaySound(hitSound);
+                    }
                 }
-            }
 
-            for (auto& coin : coins) {
-                const float coinY =
-                    coin.position.y + std::sin(coin.time * 3.0f) * 0.15f;
-
-                if (!coin.collected &&
-                    std::fabs(coin.position.x - playerPosition.x) < 0.9f &&
-                    std::fabs(coin.position.z - playerPosition.z) < 0.9f &&
-                    std::fabs(coinY - playerPosition.y) < 1.0f) {
-                    coin.collected = true;
+                const float coinZ = segment.z - 4.0f;
+                if (!segment.coinCollected && segment.coinLane == lane &&
+                    std::fabs(coinZ - PLAYER_Z) < 0.95f &&
+                    std::fabs((playerY + 0.0f) - 1.45f) < 1.0f) {
+                    segment.coinCollected = true;
                     score += 25;
+                    PlaySound(coinSound);
                 }
             }
-
-            obstacles.erase(
-                std::remove_if(
-                    obstacles.begin(), obstacles.end(),
-                    [](const Obstacle& obstacle) {
-                        return obstacle.position.z > 18.0f;
-                    }),
-                obstacles.end());
-
-            coins.erase(
-                std::remove_if(
-                    coins.begin(), coins.end(),
-                    [](const Coin& coin) {
-                        return coin.position.z > 18.0f || coin.collected;
-                    }),
-                coins.end());
         } else if (IsKeyPressed(KEY_R)) {
             reset();
         }
@@ -303,23 +299,16 @@ int main() {
         ClearBackground(Color{7, 10, 20, 255});
 
         BeginMode3D(camera);
-        DrawWorld(distance);
-
-        for (const auto& obstacle : obstacles) {
-            DrawObstacle(obstacle);
+        for (const auto& segment : segments) {
+            DrawSegment(segment, roadTexture, buildingTexture,
+                        obstacleTexture, neonTexture);
         }
-
-        for (const auto& coin : coins) {
-            DrawCoin(coin);
-        }
-
-        DrawPlayer({LaneX(lane), playerY, PLAYER_Z});
+        DrawAnimatedPlayer({LaneX(lane), playerY, PLAYER_Z}, runTime,
+                           playerY > 1.05f);
         EndMode3D();
 
-        DrawRectangle(0, 0, SCREEN_WIDTH, 78,
-                      Color{5, 8, 18, 225});
-        DrawText("NEON RUNNER", 28, 18, 28,
-                 Color{100, 225, 255, 255});
+        DrawRectangle(0, 0, SCREEN_WIDTH, 78, Color{5, 8, 18, 225});
+        DrawText("NEON RUNNER", 28, 18, 28, Color{100, 225, 255, 255});
         DrawText(TextFormat("SCORE %05d", score), 275, 20, 26, RAYWHITE);
         DrawText(TextFormat("SPEED %.1f", speed), 480, 22, 20,
                  Color{175, 185, 210, 255});
@@ -328,11 +317,10 @@ int main() {
 
         if (gameOver) {
             DrawRectangle(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT,
-                          Color{5, 7, 15, 170});
+                          Color{5, 7, 15, 175});
             DrawText("SYSTEM FAILURE", 450, 255, 54,
                      Color{255, 90, 110, 255});
-            DrawText(TextFormat("SCORE %d", score), 565, 330, 25,
-                     RAYWHITE);
+            DrawText(TextFormat("SCORE %d", score), 565, 330, 25, RAYWHITE);
             DrawText("PRESS R TO RESTART", 505, 390, 22,
                      Color{150, 220, 255, 255});
         }
@@ -340,6 +328,15 @@ int main() {
         EndDrawing();
     }
 
+    UnloadTexture(roadTexture);
+    UnloadTexture(buildingTexture);
+    UnloadTexture(obstacleTexture);
+    UnloadTexture(neonTexture);
+    UnloadSound(coinSound);
+    UnloadSound(jumpSound);
+    UnloadSound(hitSound);
+    UnloadSound(stepSound);
+    CloseAudioDevice();
     CloseWindow();
     return 0;
 }
