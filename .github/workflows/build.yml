@@ -10,6 +10,19 @@ jobs:
       - name: Install dependencies
         run: sudo apt-get update && sudo apt-get install -y libx11-dev libxrandr-dev libxi-dev libxcursor-dev libxinerama-dev libgl1-mesa-dev libglu1-mesa-dev
       - name: Configure
-        run: cmake -S . -B build
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
       - name: Build
-        run: cmake --build build --parallel
+        run: cmake --build build --parallel --config Release
+      - name: Package artifact
+        run: |
+          mkdir -p artifact/neon-runner
+          cp build/neon_runner artifact/neon-runner/
+          cp -r assets artifact/neon-runner/ 2>/dev/null || true
+          cp README.md artifact/neon-runner/
+          tar -czf neon-runner-linux-x64.tar.gz -C artifact neon-runner
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: neon-runner-linux-x64
+          path: neon-runner-linux-x64.tar.gz
+          if-no-files-found: error
