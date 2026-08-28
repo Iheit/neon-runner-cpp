@@ -11,6 +11,7 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -19,9 +20,16 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            build-essential cmake git \
-            libx11-dev libxrandr-dev libxi-dev libxcursor-dev \
-            libxinerama-dev libgl1-mesa-dev libglu1-mesa-dev
+            build-essential \
+            cmake \
+            git \
+            libx11-dev \
+            libxrandr-dev \
+            libxi-dev \
+            libxcursor-dev \
+            libxinerama-dev \
+            libgl1-mesa-dev \
+            libglu1-mesa-dev
 
       - name: Configure
         run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
@@ -34,7 +42,7 @@ jobs:
           test -x build/neon_runner
           file build/neon_runner
 
-      - name: Package
+      - name: Package artifact
         run: |
           rm -rf package
           mkdir -p package/neon-runner/assets/generated
@@ -44,7 +52,7 @@ jobs:
           tar -czf neon-runner-linux-x64.tar.gz -C package neon-runner
           test -s neon-runner-linux-x64.tar.gz
 
-      - name: Upload artifact
+      - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
           name: neon-runner-linux-x64
