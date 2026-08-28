@@ -1,26 +1,50 @@
 name: Build Neon Runner
+
 on:
   push:
   pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - name: Install dependencies
-        run: sudo apt-get update && sudo apt-get install -y libx11-dev libxrandr-dev libxi-dev libxcursor-dev libxinerama-dev libgl1-mesa-dev libglu1-mesa-dev
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential cmake git \
+            libx11-dev libxrandr-dev libxi-dev libxcursor-dev \
+            libxinerama-dev libgl1-mesa-dev libglu1-mesa-dev
+
       - name: Configure
         run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+
       - name: Build
-        run: cmake --build build --parallel --config Release
-      - name: Package artifact
+        run: cmake --build build --parallel
+
+      - name: Verify executable
         run: |
-          mkdir -p artifact/neon-runner
-          cp build/neon_runner artifact/neon-runner/
-          cp -r assets artifact/neon-runner/ 2>/dev/null || true
-          cp README.md artifact/neon-runner/
-          tar -czf neon-runner-linux-x64.tar.gz -C artifact neon-runner
-      - name: Upload build artifact
+          test -x build/neon_runner
+          file build/neon_runner
+
+      - name: Package
+        run: |
+          rm -rf package
+          mkdir -p package/neon-runner/assets/generated
+          cp build/neon_runner package/neon-runner/
+          cp README.md package/neon-runner/
+          touch package/neon-runner/assets/generated/.gitkeep
+          tar -czf neon-runner-linux-x64.tar.gz -C package neon-runner
+          test -s neon-runner-linux-x64.tar.gz
+
+      - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: neon-runner-linux-x64
