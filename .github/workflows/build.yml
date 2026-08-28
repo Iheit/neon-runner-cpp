@@ -9,9 +9,9 @@ permissions:
   contents: read
 
 jobs:
-  build:
+  linux:
+    name: Linux x64
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -20,16 +20,9 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            build-essential \
-            cmake \
-            git \
-            libx11-dev \
-            libxrandr-dev \
-            libxi-dev \
-            libxcursor-dev \
-            libxinerama-dev \
-            libgl1-mesa-dev \
-            libglu1-mesa-dev
+            build-essential cmake git \
+            libx11-dev libxrandr-dev libxi-dev libxcursor-dev \
+            libxinerama-dev libgl1-mesa-dev libglu1-mesa-dev
 
       - name: Configure
         run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
@@ -38,23 +31,55 @@ jobs:
         run: cmake --build build --parallel
 
       - name: Verify executable
-        run: |
-          test -x build/neon_runner
-          file build/neon_runner
+        run: test -x build/neon_runner
 
-      - name: Package artifact
+      - name: Package
         run: |
-          rm -rf package
           mkdir -p package/neon-runner/assets/generated
           cp build/neon_runner package/neon-runner/
           cp README.md package/neon-runner/
           touch package/neon-runner/assets/generated/.gitkeep
           tar -czf neon-runner-linux-x64.tar.gz -C package neon-runner
-          test -s neon-runner-linux-x64.tar.gz
 
-      - name: Upload build artifact
+      - name: Upload Linux artifact
         uses: actions/upload-artifact@v4
         with:
           name: neon-runner-linux-x64
           path: neon-runner-linux-x64.tar.gz
+          if-no-files-found: error
+
+  windows:
+    name: Windows x64
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build --config Release --parallel
+
+      - name: Verify executable
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "build/Release/neon_runner.exe")) {
+            throw "neon_runner.exe was not produced"
+          }
+
+      - name: Package
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path package/neon-runner/assets/generated | Out-Null
+          Copy-Item build/Release/neon_runner.exe package/neon-runner/
+          Copy-Item README.md package/neon-runner/
+          New-Item -ItemType File -Force -Path package/neon-runner/assets/generated/.gitkeep | Out-Null
+          Compress-Archive -Path package/neon-runner -DestinationPath neon-runner-windows-x64.zip -Force
+
+      - name: Upload Windows artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: neon-runner-windows-x64
+          path: neon-runner-windows-x64.zip
           if-no-files-found: error
